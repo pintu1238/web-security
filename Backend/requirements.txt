@@ -1,0 +1,10 @@
+Flask
+PyMuPDF
+chromadb
+sentence-transformers
+rank-bm25
+numpy
+streamlit
+requests
+turso_serverless
+python-dotenv

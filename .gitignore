@@ -1,0 +1,16 @@
+Backend/chroma_db/
+Backend/chroma_db_corrupt_*/
+Backend/chroma.sqlite3
+Backend/data/
+Backend/.env
+.env
+Backend/__pycache__/
+frontend/__pycache__/
+
+# Local environments, secrets and generated web verification artifacts
+.venv/
+.env
+**/.env
+**/__pycache__/
+node_modules/
+test-results/
