@@ -251,6 +251,20 @@ class WebApiTests(unittest.TestCase):
         conversations = self.client.get("/api/conversations").get_json()
         self.assertEqual([item["question"] for item in conversations], [first, second])
 
+    def test_selected_conversation_can_be_deleted_without_deleting_other_history(self):
+        self.assertEqual(self.client.post("/api/search", json={"question": "First saved question"}).status_code, 200)
+        self.assertEqual(self.client.post("/api/search", json={"question": "Second saved question"}).status_code, 200)
+        conversations = self.client.get("/api/conversations").get_json()
+        selected_id = conversations[1]["id"]
+
+        deleted = self.client.delete(f"/api/conversations/{selected_id}")
+
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(deleted.get_json(), {"ok": True})
+        remaining = self.client.get("/api/conversations").get_json()
+        self.assertEqual([item["question"] for item in remaining], ["First saved question"])
+        self.assertEqual(self.client.delete(f"/api/conversations/{selected_id}").status_code, 404)
+
     def test_pdf_upload_uses_safe_name_and_rejects_duplicates_and_image_only_pdf(self):
         new_pdf = make_pdf("A privacy notice explains collection and use of personal data.")
         response = self.client.post(
@@ -322,6 +336,34 @@ class WebApiTests(unittest.TestCase):
         export_payload = json.loads(exported.get_data(as_text=True))
         self.assertEqual(len(export_payload["documents"]), 1)
         self.assertTrue(export_payload["activity"])
+
+    def test_saved_document_can_be_deleted_and_stays_deleted_after_restart(self):
+        created = self.client.post(
+            "/api/documents",
+            json={
+                "type": "privacy_policy",
+                "business_name": "Everest Systems",
+                "owner": "Asha Rai",
+                "address": "Kathmandu",
+                "effective_date": "2026-09-14",
+            },
+        ).get_json()
+
+        deleted = self.client.delete(f"/api/documents/{created['id']}")
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(deleted.get_json(), {"ok": True})
+        self.assertEqual(self.client.get(f"/api/documents/{created['id']}").status_code, 404)
+        self.assertEqual(self.client.get("/api/documents").get_json(), [])
+        self.assertEqual(self.client.delete(f"/api/documents/{created['id']}").status_code, 404)
+
+        reopened = create_app({
+            "TESTING": True,
+            "WORKSPACE_DB": self.app.config["WORKSPACE_DB"],
+            "LEGAL_DOCUMENTS_DIR": self.app.config["LEGAL_DOCUMENTS_DIR"],
+        }).test_client()
+        self.assertEqual(reopened.get("/api/documents").get_json(), [])
+        self.assertTrue(any(item["title"] == "Draft document deleted"
+                            for item in reopened.get("/api/dashboard").get_json()["activity"]))
 
     def test_document_fields_accept_saved_profile_limits(self):
         response = self.client.post(

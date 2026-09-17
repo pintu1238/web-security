@@ -10,7 +10,31 @@ From the project folder, start the shared interface:
 .\start.ps1
 ```
 
-Open **http://localhost:8501/#dashboard**. Use this same address in VS Code, Codex, and your browser. The frontend and backend are served together from the same workspace database; no separate frontend server is needed.
+## Project defense stages
+
+The frontend includes every planned screen in both stages so the complete
+product can be demonstrated during Part A. The default `part_a` stage keeps
+Security Scanner, Legal Compliance, Admin Panel and User Panel controls in
+preview mode; their forms and mutations are labelled as Part B while the
+assistant, documents, knowledge base and settings remain interactive.
+
+Start Part A with:
+
+```powershell
+.\start.ps1 -ProjectStage part_a
+```
+
+Use the full interactive stage when the Part B workflows are ready:
+
+```powershell
+.\start.ps1 -ProjectStage full
+```
+
+This stage setting changes presentation capabilities only. Authentication and
+backend role checks will be added before the Admin and User panels are used for
+real workspace access.
+
+`start.ps1` waits until Flask is ready and then opens **http://localhost:8501/#dashboard** automatically in your default browser. Use this same address in VS Code, Codex, and your browser. The frontend and backend are served together from the same workspace database; no separate frontend server is needed. Use `.\start.ps1 -NoBrowser` when you only want the terminal server.
 
 In **VS Code**, open this project folder and choose **Run and Debug > NitiShield** (F5) to start the app and open that address. **Terminal > Run Task > NitiShield: Start** runs the same PowerShell launcher. Run only one server at a time; if it is already running, just open the dashboard address.
 
@@ -26,7 +50,7 @@ python -m venv .venv
 .\start.ps1
 ```
 
-The launcher accepts `-Port` and `-BindAddress` overrides. Direct Python entry points (`.venv\Scripts\python.exe Backend\app.py` and `.venv\Scripts\python.exe frontend\app.py`) also default to port **8501** and the same database. On macOS or Linux, use `.venv/bin/python Backend/app.py`. Direct Python startup is local-only unless `NITISHIELD_HOST=0.0.0.0` is set. `PORT` can explicitly select another port; leave it unset for the shared default.
+The launcher accepts `-Port`, `-BindAddress`, `-ProjectStage` and `-NoBrowser` overrides. Direct Python entry points (`.venv\Scripts\python.exe Backend\app.py` and `.venv\Scripts\python.exe frontend\app.py`) also default to port **8501** and the same database. On macOS or Linux, use `.venv/bin/python Backend/app.py`. Direct Python startup is local-only unless `NITISHIELD_HOST=0.0.0.0` is set. `PORT` can explicitly select another port; leave it unset for the shared default.
 
 Every normal launch uses `Backend/data/workspace.db`, regardless of the current folder. `NITISHIELD_DB` is an optional explicit override; relative paths are resolved from the project root, so launching from `Backend/` or `frontend/` does not create another database. Leave it unset to use the shared default.
 
@@ -35,8 +59,8 @@ Every normal launch uses `Backend/data/workspace.db`, regardless of the current 
 - **Overview:** database metrics, task progress, recent activity (including PDF uploads and assistant answers), global search, notifications, and a downloadable workspace export. Navigation, search and reminders refresh from the backend so changes from another tab are visible.
 - **Security scanner:** an authorised, passive assessment of a public website's HTTPS and five response-header protections (six checks total), with saved findings and downloadable reports. Private network destinations are rejected, including redirects to them.
 - **Legal compliance:** add, complete, reopen, search, filter and remove checklist tasks. Changes persist across reloads and restarts.
-- **Legal assistant:** get conversational answers grounded in your PDFs, with numbered page references. Choose one PDF or search the library, summarize selected passages, and ask follow-up questions. Conversation history is saved and can be cleared.
-- **Document studio:** create, reopen, copy and download privacy policy, employment agreement, non-disclosure agreement, and incident response plan drafts using your saved business details.
+- **Legal assistant:** ask everyday questions, get help with NitiShield, or get answers grounded in your PDFs with numbered page references. Choose a PDF for focused questions, summarize selected passages, and ask follow-ups. Select English, नेपाली or Hindi, or let Auto follow your question’s language. Conversation history is saved and can be cleared.
+- **Document studio:** create, reopen, copy, download and delete privacy policy, employment agreement, non-disclosure agreement, and incident response plan drafts using your saved business details.
 - **Knowledge base:** upload searchable PDFs up to 10 MB, search the library, and open the original sources. The included Electronic Transactions Act PDF is available automatically.
 - **Settings:** saved business profile, in-app reminder preferences, and data export.
 
@@ -51,9 +75,13 @@ ollama pull qwen2.5:1.5b
 .\start.ps1
 ```
 
-The model download is approximately 1 GB. The default is a small instruction model chosen for this CPU-only machine; larger installed instruction models can be configured below. Open the **Legal assistant**, choose a PDF in **Answer from**, and ask normally—for example, “What does this mean for my business?” Follow with “Explain that simply” or “Give me an example.” Use **Ask about it** in the knowledge base to select an uploaded PDF and prepare a summary request. Uploads become searchable immediately.
+The model is approximately 1 GB and runs locally. Open the **Legal assistant** and ask normally. “Tell me about this website” and “How can you help me?” work immediately, even without a model or PDF. Leave **Answer from** on Auto for general chat and library search, or choose a PDF to require an answer from that document. Use **Ask about it** in the knowledge base to prepare a summary. Uploads become searchable immediately.
 
-The first answer may take longer while the model loads. On a CPU, allow up to three minutes per answer. The assistant shows whether the model is ready. If Ollama is unavailable, it explains the problem and leaves the original sources accessible; it does not pretend excerpts are an AI answer.
+For a Nepali PDF, ask in Nepali or select **Reply in → नेपाली**. Auto follows your question’s language, not the PDF’s language; you can also request a language in your question. An explicit selector choice takes precedence. Nepali/Hindi script detection is heuristic because they share Devanagari; choose the language explicitly when needed. Nepali PDF text must be searchable Unicode. Scanned pages need OCR, and PDFs with broken font-to-Unicode mappings may need conversion before upload. Cross-language retrieval uses a small vocabulary bridge rather than a multilingual embedding model.
+
+**Translation limitation:** the installed small model answered the tested Nepali PDF questions in Nepali, but changed facts when translating Nepali passages into English. PDF answers in a different language are therefore declined by default, with original sources retained. To enable translation with another model you have installed and evaluated, set `NITISHIELD_TRANSLATION_MODEL` to its Ollama model name. App help and general chat can still use the selected language. This limitation is separate from whether the PDF text can be extracted.
+
+The model loads on demand and releases memory after each answer on this CPU-only machine. Allow up to three minutes for generation; an optional translation model has a six-minute limit. App introductions and basic help are immediate. The assistant shows whether the model is downloaded. If Ollama is unavailable, it explains the problem and leaves the original sources accessible; it does not pretend excerpts are an AI answer.
 
 To use another installed Ollama model or server, set these environment variables **before starting Flask** (a `.env` file is not automatically loaded):
 
@@ -90,6 +118,8 @@ These suites keep PDF parsing, retrieval and persistence real, and replace only 
 ```
 
 It checks an uploaded leave policy, a follow-up, the included legal PDF and an unsupported question, and writes answers plus timings to `test-results/assistant-live.json` for review.
+
+For real ordinary-chat and Nepali PDF checks, run `.venv\Scripts\python.exe tests\evaluate_chat_languages.py`. This uses an actual searchable Nepali PDF and the local model, checks the leave amounts and notice period, checks that unsupported translation is declined, and saves answers in `test-results/chat-languages-live.json`. Source references remain available for checking the model’s answers.
 
 The browser tests exercise UI actions against disposable SQLite databases and PDF directories, then inspect the stored records independently. The repeatable suites replace only external website responses and model inference with fixtures. They default to the installed Brave browser on Windows and require Playwright for Node:
 

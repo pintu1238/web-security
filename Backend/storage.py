@@ -107,6 +107,7 @@ def initialize(db_path):
                 question TEXT NOT NULL,
                 answer TEXT NOT NULL,
                 results_json TEXT NOT NULL,
+                context_json TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS workspace_state (
@@ -123,6 +124,10 @@ def initialize(db_path):
             );
             """
         )
+        # Serialize the additive migration when two app instances start together.
+        connection.execute('BEGIN IMMEDIATE')
+        if 'context_json' not in {row['name'] for row in connection.execute('PRAGMA table_info(conversations)')}:
+            connection.execute("ALTER TABLE conversations ADD COLUMN context_json TEXT NOT NULL DEFAULT '{}'")
         profile_insert = connection.execute(
             """INSERT OR IGNORE INTO settings
                (id, business_name, owner, email, website, business_type, address, notifications)
@@ -330,21 +335,34 @@ def list_documents(db_path, include_content=False):
         return [document_dict(row, include_content) for row in rows]
 
 
+def delete_document(db_path, document_id):
+    with connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT title FROM generated_documents WHERE id = ?", (document_id,)
+        ).fetchone()
+        if not row:
+            return False
+        connection.execute("DELETE FROM generated_documents WHERE id = ?", (document_id,))
+        add_activity(connection, "Draft document deleted", row["title"], "document")
+        return True
+
+
 def chat_revision(db_path):
     with connect(db_path) as connection:
         return connection.execute("SELECT chat_revision FROM workspace_state WHERE id = 1").fetchone()[0]
 
 
-def save_conversation(db_path, question, answer, results, expected_revision=None):
+def save_conversation(db_path, question, answer, results, expected_revision=None, context=None):
     with connect(db_path) as connection:
         connection.execute("BEGIN IMMEDIATE")
         revision = connection.execute("SELECT chat_revision FROM workspace_state WHERE id = 1").fetchone()[0]
         if expected_revision is not None and revision != expected_revision:
             return None
         cursor = connection.execute(
-            """INSERT INTO conversations (question, answer, results_json, created_at)
-               VALUES (?, ?, ?, ?)""",
-            (question, answer, json.dumps(results, ensure_ascii=False), now_iso()),
+            """INSERT INTO conversations (question, answer, results_json, context_json, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (question, answer, json.dumps(results, ensure_ascii=False),
+             json.dumps({key: value for key, value in (context or {}).items() if key in {'mode', 'language', 'source'}}), now_iso()),
         )
         add_activity(connection, "Assistant answer saved", "A conversation was saved to your workspace.", "search")
         return cursor.lastrowid
@@ -360,6 +378,7 @@ def list_conversations(db_path):
                 "answer": row["answer"],
                 "results": json.loads(row["results_json"]),
                 "created_at": row["created_at"],
+                **json.loads(row['context_json']),
             }
             for row in rows
         ]
@@ -369,6 +388,17 @@ def clear_conversations(db_path):
     with connect(db_path) as connection:
         connection.execute("UPDATE workspace_state SET chat_revision = chat_revision + 1 WHERE id = 1")
         connection.execute("DELETE FROM conversations")
+
+
+def delete_conversation(db_path, conversation_id):
+    with connect(db_path) as connection:
+        deleted = connection.execute(
+            "DELETE FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).rowcount
+        if deleted:
+            connection.execute("UPDATE workspace_state SET chat_revision = chat_revision + 1 WHERE id = 1")
+        return bool(deleted)
 
 
 def sync_knowledge(db_path, records, uploaded=None):

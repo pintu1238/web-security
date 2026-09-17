@@ -71,6 +71,8 @@ def main():
             if 'paid leave' in values['question']:
                 assert '18' in result['answer'] or 'eighteen' in result['answer'].lower(), result
                 assert '7' in result['answer'] or 'seven' in result['answer'].lower() or 'week' in result['answer'].lower(), result
+            if values['question'] == 'Explain that simply':
+                assert result['answer'] != report[-1]['answer'], 'A simplification should not repeat the previous answer verbatim'
             report.append(result)
             print(result['answer'], '\nSeconds:', result['elapsed_seconds'], flush=True)
         output = ROOT / 'test-results' / 'assistant-live.json'

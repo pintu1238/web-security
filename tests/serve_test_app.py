@@ -39,6 +39,9 @@ application = create_app({
     "WORKSPACE_DB": test_root / "workspace.db",
     "LEGAL_DOCUMENTS_DIR": test_root / "legal_documents",
     "TESTING": True,
+    # Browser regression tests cover the complete interactive application by
+    # default; a Part A browser check can override this with NITISHIELD_TEST_STAGE.
+    "PROJECT_STAGE": os.environ.get("NITISHIELD_TEST_STAGE", "full"),
 })
 
 # Replace only external inference for repeatable UI checks. Run with

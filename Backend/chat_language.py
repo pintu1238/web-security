@@ -17,6 +17,14 @@ def resolve(question, selected=None):
     return 'English'
 
 
+def source_language(text):
+    letters = [character for character in text if character.isalpha()]
+    devanagari = sum('\u0900' <= character <= '\u097f' for character in letters)
+    if not letters or devanagari / len(letters) < 0.4:
+        return 'English'
+    return 'Hindi' if re.search(r'(?:^|\s)(है|हैं|मुझे|बताओ)(?:\s|[।?!]|$)', text) else 'नेपाली'
+
+
 TEXT = {
     'greeting': (
         'Namaste! Ask me a question, tell me what you need help with, or pick a PDF to discuss.',
@@ -46,6 +54,10 @@ TEXT = {
         'You can still read the relevant PDF passages below.',
         'तल PDF का सम्बन्धित अंश पढ्न सक्नुहुन्छ।',
         'नीचे PDF के संबंधित अंश अभी भी पढ़ सकते हैं।'),
+    'translation_unavailable': (
+        'This local model isn’t reliable enough to translate these PDF passages into English. Choose नेपाली to discuss a Nepali PDF in Nepali, or configure a stronger translation model using the README.',
+        'यो स्थानीय मोडेलले अर्को भाषाको PDF भरपर्दो रूपमा नेपालीमा अनुवाद गर्न सक्दैन। नेपाली PDF छानेर नेपालीमै प्रश्न सोध्नुहोस्, वा README अनुसार राम्रो अनुवाद मोडेल जोड्नुहोस्।',
+        'यह स्थानीय मॉडल दूसरी भाषा के PDF का भरोसेमंद हिंदी अनुवाद नहीं कर सकता। PDF की भाषा में सवाल पूछिए या README के अनुसार बेहतर अनुवाद मॉडल जोड़िए।'),
 }
 
 

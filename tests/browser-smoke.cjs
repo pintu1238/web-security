@@ -44,8 +44,10 @@ async function main(){
   const jsErrors=[];page.on('pageerror',e=>jsErrors.push(e.message));
   page.on('dialog',async d=>{jsErrors.push(`Unexpected dialog: ${d.message()}`);await d.dismiss();});
   await page.goto(base);
-  await page.getByText('Workspace connected',{exact:true}).waitFor();
-  await page.getByRole('heading',{name:/Good (morning|afternoon|evening)/}).waitFor();
+  await page.getByRole('heading',{name:'Overview',exact:true}).waitFor();
+  assert.equal(await page.locator('#connection-dot').count(),0);
+  assert.equal(await page.getByText('Workspace connected',{exact:true}).count(),0);
+  await page.getByRole('heading',{name:'Overview',exact:true}).waitFor();
   assert.equal(await page.locator('.stat-card').count(),4);
   await page.screenshot({path:path.join(output,'dashboard-desktop.png'),fullPage:true,animations:'disabled'});
   done('Dashboard loads from real backend with an unassessed baseline');
@@ -116,7 +118,12 @@ async function main(){
     await page.getByRole('button',{name:'Close dialog'}).click();
   }
   assert.equal(await page.locator('tbody tr').count(),4);
-  done('All four document templates generate, persist and download; copying works without the modern clipboard API');
+  const firstDocumentRow=page.locator('tbody tr').first();
+  await firstDocumentRow.getByRole('button',{name:/Delete/}).click();
+  await page.locator('#modal').getByRole('button',{name:'Delete draft',exact:true}).click();
+  await page.getByText('Draft deleted.',{exact:true}).waitFor();
+  assert.equal(await page.locator('tbody tr').count(),3);
+  done('All four document templates generate, persist and download; saved drafts can be deleted after confirmation');
 
   await page.goto(`${base}/#knowledge`);await page.locator('.knowledge-card').first().waitFor();
   const source=await download(page,page.locator('.knowledge-card').first().getByRole('link',{name:'Open source'}));

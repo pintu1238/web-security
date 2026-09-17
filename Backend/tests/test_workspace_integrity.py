@@ -49,6 +49,14 @@ class WorkspaceIntegrityTests(unittest.TestCase):
         self.assertEqual(exported.get("conversations", [{}])[0].get("question"), "hello")
         self.assertEqual(exported["documents"][0]["owner"], "Test Owner")
 
+    def test_dashboard_restores_conversation_history_after_app_restart(self):
+        self.client.post("/api/search", json={"question": "Remember this chat"})
+
+        reopened = create_app(self.config).test_client()
+        dashboard = reopened.get("/api/dashboard").get_json()
+
+        self.assertEqual(dashboard["conversations"][0]["question"], "Remember this chat")
+
     def test_uploaded_pdf_is_catalogued_in_sqlite_and_visible_in_activity_and_export(self):
         uploaded = self.upload()
         reopened = create_app(self.config).test_client()

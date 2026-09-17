@@ -85,10 +85,6 @@ select:focus-visible, textarea:focus-visible { outline-color: #5f8ee5; }
 .icon-button { color: #6d7e94; }
 .icon-button:hover { background: #edf2fa; color: #365a91; }
 .app-footer { border-color: var(--border); color: #66768b; }
-.status-dot { background: #a8b7c8; }
-.status-dot.online { background: #4e927a; }
-.status-dot.error { background: #c46b69; }
-
 /* White cards keep content clear; color is concentrated in small details. */
 .card, .stat-card, .quick-action {
   background: #fff;

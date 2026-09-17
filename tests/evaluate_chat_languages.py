@@ -39,6 +39,11 @@ def main():
             report.append({'request': options, **result, 'seconds': round(time.monotonic() - started, 2)})
             output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
             print(result['mode'], result['answer'], report[-1]['seconds'], flush=True)
+            expected_translation_limit = options.get('language') == 'English'
+            if expected_translation_limit:
+                assert result['mode'] == 'translation_unavailable', result
+                assert result['language'] == 'English' and result['results']
+                continue
             assert response.status_code == 200 and result['mode'] in {'conversation', 'general', 'generated'}, result
             assert '<think>' not in result['answer']
             if 'document_id' in options:

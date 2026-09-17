@@ -70,6 +70,8 @@ Answer everyday questions directly in simple, natural language. Use 2-4 short
 sentences unless more detail is requested. Explain rather than sounding like a textbook.
 For a simple definition or a request to simplify, use at most two short sentences.
 Only state the essential facts; do not add speculative details.
+Assume the reader is a beginner. Write as you would explain something to a friend.
+Avoid technical jargon unless requested; explain unfamiliar terms in everyday words.
 For follow-ups, use the conversation to understand what the user means.
 This is a general conversation: no PDF evidence has been supplied. Never claim
 an answer came from the user's files, and never invent citations or source links.
@@ -85,8 +87,6 @@ Documents (draft templates), Knowledge base (upload/search PDFs), and Settings
 performed an action or seen private workspace records.
 Return only your finished answer, without analysis or internal reasoning.
 """
-
-
 def _plain_language(content, question):
     """Polish a few formal phrases without rewriting legal facts or modals."""
     if re.search(r"\b(quote|verbatim|exact wording)\b", question, re.IGNORECASE):
@@ -113,10 +113,13 @@ def _messages(question, results, history, overview=False, language='English'):
          "page": item["metadata"]["page_number"], "passage": item["text"]}
         for index, item in enumerate(results, 1)
     ]
+    answer_style = "Answer only what I asked in 1-3 simple sentences. Check all quantities and conditions against the sources. Do not turn a right or permission into a requirement." if results else "Answer naturally and briefly. Do not repeat unnecessary details from your last answer."
+    if history and re.search(r'\b(simply|simple|simplify|shorter)\b|सरल|सजिलो|छोटकरीमा', question, re.I):
+        answer_style = 'Use at most 25 words in everyday language. Give just the main meaning, preserving important numbers and conditions. Do not repeat your previous wording.'
     content = json.dumps({"sources": sources, "question": question,
                           "coverage": "Selected passages across the PDF, not necessarily every page." if overview else "Relevant passages only.",
                           "reply_language": language,
-                          "answer_style": "Answer only what I asked in 1-3 simple sentences. Check all quantities and conditions against the sources. Do not turn a right or permission into a requirement." if results else "Answer naturally and briefly. Do not repeat unnecessary details from your last answer."}, ensure_ascii=False)
+                          "answer_style": answer_style}, ensure_ascii=False)
     messages.append({"role": "user", "content": content})
     return messages
 
@@ -128,7 +131,10 @@ def status(config):
         response.raise_for_status()
         models = response.json().get("models", [])
         ready = any(item.get("name") in {model, model + ":latest"} for item in models)
-        return {"ready": ready, "model": model, "message": "Local AI is ready." if ready else "The local AI model needs to be downloaded. See the README setup steps."}
+        translation_model = config.get('CHAT_TRANSLATION_MODEL')
+        translation_ready = bool(translation_model and any(item.get('name') in {translation_model, translation_model + ':latest'} for item in models))
+        message = 'Local AI is ready.' if ready else 'The local AI model needs to be downloaded. See the README setup steps.'
+        return {'ready': ready, 'model': model, 'translation_ready': translation_ready, 'message': message}
     except (requests.RequestException, ValueError, AttributeError, TypeError):
         return {"ready": False, "model": model, "message": "Start Ollama to enable AI answers. Your PDFs are still available."}
 
@@ -189,18 +195,31 @@ def answer(directory, question, history, config, document_id=None, language=None
         for item in ordered:
             unique.setdefault(item["chunk_id"], item)
         results = list(unique.values())[:5]
-    document_followup = followup and history and (history[-1].get('results') or PDF_REFERENCE.search(history[-1]['question']))
+    document_followup = followup and history and (history[-1].get('source') == 'local_documents' or
+                        history[-1].get('results') or (not history[-1].get('mode') and PDF_REFERENCE.search(history[-1]['question'])))
     if not results and (document_id or explicit_pdf or document_followup or overview):
         return reply('no_sources', 'no_sources')
+    native_results = [item for item in results if language == chat_language.source_language(item['text'])]
+    translation = len(native_results) != len(results)
+    if translation and not config.get('CHAT_TRANSLATION_MODEL'):
+        if native_results:
+            results, translation = native_results, False
+        else:
+            return {'answer': chat_language.text('translation_unavailable', language), 'results': results,
+                    'mode': 'translation_unavailable', 'language': language}
+    model = config['CHAT_TRANSLATION_MODEL'] if translation else config['CHAT_MODEL']
     # Only carry history into an actual follow-up; fresh topics get fresh context.
-    messages = _messages(question, results, history if previous or (followup and not results) else [], overview, language)
+    context = history if previous or (followup and not results) else []
+    messages = _messages(question, results, context, overview, language)
     try:
         response = requests.post(
             config["CHAT_BASE_URL"].rstrip("/") + "/api/chat",
-            json={"model": config["CHAT_MODEL"], "messages": messages, "stream": False,
-                  "keep_alive": "15m",
-                  "options": {"temperature": 0.2, "num_predict": 420, "num_ctx": 8192}},
-            timeout=(3, 180),
+            json={"model": model, "messages": messages, "stream": False,
+                  # Release model memory between requests on this shared CPU
+                  # host, especially when switching between the two models.
+                  "keep_alive": 0,
+                  "options": {"temperature": 0.1, "num_predict": 420, "num_ctx": 8192}},
+            timeout=(3, 360 if translation else 180),
         )
         response.raise_for_status()
         payload = response.json()
@@ -214,6 +233,8 @@ def answer(directory, question, history, config, document_id=None, language=None
         content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
         if not content or "<think>" in content:
             raise ValueError("The model returned no usable answer.")
+        if re.match(r"(?:Okay,? (?:let['’]s|let me)|Hmm\b|The user (?:is|asks)|Let me (?:think|analy[sz]e))", content, re.I):
+            raise ValueError('The model returned analysis instead of an answer.')
         # Unsupported source numbers must never appear as legitimate citations.
         content = re.sub(r"\[(\d+)\]", lambda match: match[0] if 1 <= int(match[1]) <= len(results) else "", content)
         content = _plain_language(content, question)

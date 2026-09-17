@@ -26,6 +26,26 @@ TASK_CATEGORIES = {"Legal", "Security", "Operations"}
 TASK_PRIORITIES = {"high", "medium", "low"}
 TASK_STATUSES = {"pending", "completed"}
 EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+PROJECT_PAGES = [
+    "dashboard",
+    "scanner",
+    "compliance",
+    "assistant",
+    "documents",
+    "knowledge",
+    "admin",
+    "user",
+    "settings",
+]
+PROJECT_FEATURES = {
+    "security_scanner": "Security scanner",
+    "legal_compliance": "Legal compliance",
+    "admin_panel": "Admin panel",
+    "user_panel": "User panel",
+    "legal_assistant": "Legal assistant",
+    "document_studio": "Document studio",
+    "knowledge_base": "Knowledge base",
+}
 
 
 class ApiError(ValueError):
@@ -146,9 +166,15 @@ def create_app(test_config=None):
         MAX_CONTENT_LENGTH=11 * 1024 * 1024,
         CHAT_BASE_URL=os.environ.get("NITISHIELD_CHAT_URL", "http://127.0.0.1:11434"),
         CHAT_MODEL=os.environ.get("NITISHIELD_CHAT_MODEL", "qwen2.5:1.5b"),
+        CHAT_TRANSLATION_MODEL=os.environ.get("NITISHIELD_TRANSLATION_MODEL"),
+        PROJECT_STAGE=os.environ.get("NITISHIELD_PROJECT_STAGE", "part_a"),
     )
     if test_config:
         flask_app.config.update(test_config)
+    project_stage = str(flask_app.config.get("PROJECT_STAGE", "part_a")).strip().lower()
+    if project_stage not in {"part_a", "full"}:
+        project_stage = "part_a"
+    flask_app.config["PROJECT_STAGE"] = project_stage
     db_path = Path(flask_app.config["WORKSPACE_DB"]).expanduser()
     if not db_path.is_absolute():
         db_path = PROJECT_DIR / db_path
@@ -205,6 +231,31 @@ def create_app(test_config=None):
     @flask_app.get("/api/health")
     def health():
         return jsonify({"status": "ok"})
+
+    @flask_app.get("/api/project-config")
+    def project_config():
+        """Describe the presentation stage without changing stored workspace data.
+
+        Part A keeps every frontend screen visible while reserving selected
+        workflows for the Part B implementation. This endpoint is a UI
+        capability hint, not an authorization boundary; authenticated,
+        role-aware checks belong in the Part B backend.
+        """
+        interactive = flask_app.config["PROJECT_STAGE"] == "full"
+        part_b_features = {"security_scanner", "legal_compliance", "admin_panel", "user_panel"}
+        return jsonify(
+            {
+                "stage": flask_app.config["PROJECT_STAGE"],
+                "pages": PROJECT_PAGES,
+                "features": {
+                    name: {
+                        "label": label,
+                        "interactive": interactive if name in part_b_features else True,
+                    }
+                    for name, label in PROJECT_FEATURES.items()
+                },
+            }
+        )
 
     @flask_app.get("/api/settings")
     def get_settings():
@@ -337,11 +388,13 @@ def create_app(test_config=None):
             legal_directory(), question, storage.list_conversations(database_path())[-6:],
             flask_app.config, document_id, language,
         )
-        saved = storage.save_conversation(database_path(), question, response["answer"], response["results"], revision)
+        source = 'local_documents' if response['results'] or response['mode'] in {'no_sources', 'clarification'} else 'conversation' if response['mode'] == 'conversation' else 'general_knowledge'
+        context = {key: response.get(key) for key in ('mode', 'language')}
+        context['source'] = source
+        saved = storage.save_conversation(database_path(), question, response["answer"], response["results"], revision, context)
         if saved is None:
             raise ApiError("Conversation history was cleared while this answer was pending. Send the question again to start a new conversation.", 409)
-        source = 'local_documents' if response['results'] or response['mode'] in {'no_sources', 'clarification'} else 'conversation' if response['mode'] == 'conversation' else 'general_knowledge'
-        return jsonify({"question": question, "source": source, **response})
+        return jsonify({"id": saved, "question": question, "source": source, **response})
 
     @flask_app.get("/api/conversations")
     def get_conversations():
@@ -350,6 +403,12 @@ def create_app(test_config=None):
     @flask_app.delete("/api/conversations")
     def delete_conversations():
         storage.clear_conversations(database_path())
+        return jsonify({"ok": True})
+
+    @flask_app.delete("/api/conversations/<int:conversation_id>")
+    def delete_conversation(conversation_id):
+        if not storage.delete_conversation(database_path(), conversation_id):
+            raise ApiError("Conversation not found.", 404)
         return jsonify({"ok": True})
 
     @flask_app.get("/api/documents")
@@ -362,6 +421,12 @@ def create_app(test_config=None):
         if not document:
             raise ApiError("Document not found.", 404)
         return jsonify(document)
+
+    @flask_app.delete("/api/documents/<int:document_id>")
+    def delete_document(document_id):
+        if not storage.delete_document(database_path(), document_id):
+            raise ApiError("Document not found.", 404)
+        return jsonify({"ok": True})
 
     @flask_app.post("/api/documents")
     def post_document():
@@ -406,6 +471,7 @@ def create_app(test_config=None):
             "tasks": storage.list_tasks(database_path()),
             "scans": storage.list_scans(database_path()),
             "documents": storage.list_documents(database_path()),
+            "conversations": storage.list_conversations(database_path()),
             "knowledge": knowledge_catalog(),
             "activity": storage.list_activity(database_path()),
             "stats": storage.stats(database_path()),
